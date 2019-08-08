@@ -130,5 +130,3 @@ class ApiQueueManager:
         self.queue_process.join(5)
 
 # TODO write rate reset mechanism
-# TODO Check into a private repo
-# TODO Create step method to fix rate to absolute time
