@@ -3,7 +3,7 @@ import time
 import unittest
 from multiprocessing import Lock
 from threading import Thread
-
+from time import sleep
 from boto_rate_manager import ApiQueueManager
 
 
@@ -18,10 +18,14 @@ class MyTestCase(unittest.TestCase):
         self.run_times = []
         self.step = 0
         self.thread_end_times = []
+        self.brm = None
 
     def join_queue(self, thread_id):
         waiter = self.brm.enqueue()
-        while waiter.waiting is True and waiter.now() <= waiter.timeout:
+        while waiter.waiting is True:
+            now = waiter.now()
+            if now >= waiter.timeout:
+                print(f'ThreadID {thread_id} timed-out now = {now} tm = {waiter.timeout}')
             pass
 
         with self.mutex:
@@ -42,10 +46,10 @@ class MyTestCase(unittest.TestCase):
         for t in threads:
             t.join()
 
-        self.brm.stop()
+        self.brm.stop(True)
 
-        self.assertLess((now_millis() - self.start), 6000)
         self.record_test_metrics()
+        self.assertLess((now_millis() - self.start), 6000)
 
     def test_100_waiters_with_no_contention(self):
         self.step = 100
@@ -62,8 +66,37 @@ class MyTestCase(unittest.TestCase):
         for t in threads:
             t.join()
 
-        self.brm.stop()
+        self.brm.stop(True)
         self.record_test_metrics()
+
+        self.assertTrue(self.brm.queue.empty())
+
+    def test_reset_of_rate_reduces_run_time(self):
+        self.step = 500
+        self.brm = ApiQueueManager(self.step)
+        self.brm.start()
+        threads = []
+
+        # 50 threads at .5 secs each is 25 secs ish run time
+        for i in range(50):
+            threads.append(Thread(target=self.join_queue, args=[i]))
+
+        for t in threads:
+            t.start()
+
+        sleep(1)
+
+        # Reset rate to 20 from 500 drops runtime form 30ish to 17ish secs
+        self.brm.reset_rate(20)
+
+        for t in threads:
+            t.join()
+
+        self.brm.stop(True)
+
+        self.record_test_metrics()
+        self.assertLess((now_millis() - self.start), 18000)
+        self.assertTrue(self.brm.queue.empty())
 
     def test_print_metric(self):
         self.print_test_metrics()
