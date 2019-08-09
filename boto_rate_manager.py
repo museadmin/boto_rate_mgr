@@ -24,6 +24,7 @@ class ApiQueueManager:
     """
 
     mutex = Lock()
+    queued = 0
 
     def __init__(self, rate_millis):
         """
@@ -33,7 +34,7 @@ class ApiQueueManager:
 
         self.process_q = False
         self.queue = queue.Queue(0)
-        self.queue_process = threading.Thread(target=self.process_queue)
+        self.queue_process = None
         self.rate_millis = float(rate_millis)
         self.spent_waiters = []
         self.step_time = 0
@@ -71,9 +72,13 @@ class ApiQueueManager:
         """
         waiter = ApiQueueManager.Waiter()
         with self.mutex:
-            # nowt = int(round(time.time() * 1000))
-            waiter.timeout = self.now() + ((self.queue.qsize() + 1) * self.rate_millis)
             self.queue.put(waiter)
+            self.queued += 1
+            if self.step_time == 0:
+                waiter.timeout = self.now() + ((self.queued + 100) * self.rate_millis)
+            else:
+                waiter.timeout = self.step_time + ((self.queued + 100) * self.rate_millis)
+
         return waiter
 
     def next_step(self):
@@ -82,6 +87,9 @@ class ApiQueueManager:
         :return: long: Time of the next step in epoch millis
         """
         return self.now() + self.rate_millis
+
+    def new_thread(self):
+        return threading.Thread(target=self.process_queue)
 
     @staticmethod
     def now():
@@ -110,23 +118,33 @@ class ApiQueueManager:
                     waiter.waiting = False
                     self.spent_waiters.append(waiter)
                     self.queue.task_done()
+                    self.queued -= 1
                     self.process_spent_waiters()
 
             while self.now() <= self.step_time:
                 pass
+
+    def reset_rate(self, rate):
+        self.stop()
+        self.rate_millis = rate
+        self.start()
 
     def start(self):
         """
         Start processing the queue in a background thread
         """
         self.process_q = True
+        self.queue_process = self.new_thread()
         self.queue_process.start()
 
-    def stop(self):
+    def stop(self, soft_stop=False):
         """
         Kill the queue processor
         """
+        if soft_stop is True:
+            timeout = self.now() + (self.queue.qsize() * 50)
+            while self.queue.qsize() > 0 and self.now() < timeout:
+                pass
+
         self.process_q = False
         self.queue_process.join(5)
-
-# TODO write rate reset mechanism
