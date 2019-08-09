@@ -28,8 +28,8 @@ class ApiQueueManager:
 
     def __init__(self, rate_millis):
         """
-        :param rate_millis:
-            The rate in milliseconds that requests for the APIs are popped from the Queue
+        :type rate_millis: float
+        :param rate_millis: The rate in milliseconds that requests for the APIs are popped from the Queue
         """
 
         self.process_q = False
@@ -139,7 +139,9 @@ class ApiQueueManager:
 
     def stop(self, soft_stop=False):
         """
-        Kill the queue processor
+        Kill the queue processor thread
+        :type soft_stop: Boolean
+        :param soft_stop: Attempt to wait for the Q to empty before killing the thread
         """
         if soft_stop is True:
             timeout = self.now() + (self.queue.qsize() * 50)
